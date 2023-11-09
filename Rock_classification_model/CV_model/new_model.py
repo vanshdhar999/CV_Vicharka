@@ -1,14 +1,16 @@
-# this file contains the new rock classification model with optimized features and functions
-import os, warnings
+import os
+import warnings
 import matplotlib.pyplot as plt
-from matplotlib import gridspec
-
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 from tensorflow.keras.models import load_model
+
+#tf.config.set_visible_devices([], 'GPU') # to enable gpu
 
 # Reproducability
 def set_seed(seed=31415):
@@ -16,6 +18,7 @@ def set_seed(seed=31415):
     tf.random.set_seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     os.environ['TF_DETERMINISTIC_OPS'] = '1'
+
 set_seed(31415)
 
 # Load training and validation sets
@@ -48,25 +51,22 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 ds_train = (
     ds_train_
     .map(convert_to_float)
-    .take(1000)
-    .cache(filename = 'cache_file')
+    .take(2000).cache()
     .prefetch(buffer_size=AUTOTUNE)
 )
 ds_valid = (
     ds_valid_
     .map(convert_to_float)
-    .take(1000)
-    .cache(filename = 'val_cache_file')
+    .take(2000).cache()
     .prefetch(buffer_size=AUTOTUNE)
 )
 
 pretrained_base = tf.keras.models.load_model(
-    './vgg16-pretrained-base', compile= False
+    './vgg16-pretrained-base', compile=False
 )
 pretrained_base.trainable = False
 
-#define the model
-
+# Define the model
 model = keras.Sequential([
     pretrained_base,
     layers.Flatten(),
@@ -80,9 +80,29 @@ model.compile(
     metrics=['binary_accuracy'],
 )
 
+# Define the ModelCheckpoint callback
+checkpoint_path = "model_weights.h5"
+checkpoint_callback = ModelCheckpoint(
+    filepath=checkpoint_path,
+    save_best_only=True,
+    monitor='val_loss',
+    mode='min',
+    verbose=1
+)
+
+# Fit the model with the callback
 history = model.fit(
     ds_train,
     validation_data=ds_valid,
-    epochs=5,
+    epochs=10,
+    callbacks=[checkpoint_callback],  # Include the ModelCheckpoint callback
     verbose=1,
 )
+
+# Load the best weights after training
+model.load_weights(checkpoint_path)
+
+# Plot the training history
+history_frame = pd.DataFrame(history.history)
+history_frame.loc[:, ['loss', 'val_loss']].plot()
+history_frame.loc[:, ['binary_accuracy', 'val_binary_accuracy']].plot()
